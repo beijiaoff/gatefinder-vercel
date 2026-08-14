@@ -6,6 +6,12 @@ export type CellOverride = {
   value: string;
 };
 
+export type SiteStats = {
+  totalViews: number;
+  todayVisitors: number;
+  totalSearches: number;
+};
+
 function getSql() {
   const connectionString = process.env.DATABASE_URL;
   return connectionString ? neon(connectionString) : null;
@@ -44,6 +50,88 @@ export async function saveOverrides(
       `),
     );
   }
+}
+
+export async function getSiteStats(): Promise<SiteStats> {
+  const sql = getSql();
+  if (!sql) throw new Error("DATABASE_URL is not configured");
+  await ensureStatsSchema(sql);
+  const rows = await sql`
+    UPDATE site_stats
+    SET
+      visitor_date = to_char(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD'),
+      today_visitors = CASE
+        WHEN visitor_date = to_char(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD')
+          THEN today_visitors
+        ELSE 0
+      END
+    WHERE id = 1
+    RETURNING total_views, today_visitors, total_searches
+  `;
+  return normalizeSiteStats(rows[0]);
+}
+
+export async function recordSiteStat(
+  event: "view" | "search",
+  newDailyVisitor = false,
+): Promise<SiteStats> {
+  const sql = getSql();
+  if (!sql) throw new Error("DATABASE_URL is not configured");
+  await ensureStatsSchema(sql);
+  const visitorIncrement = newDailyVisitor ? 1 : 0;
+  const rows = event === "view"
+    ? await sql`
+        UPDATE site_stats
+        SET
+          total_views = total_views + 1,
+          visitor_date = to_char(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD'),
+          today_visitors = CASE
+            WHEN visitor_date = to_char(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD')
+              THEN today_visitors + ${visitorIncrement}
+            ELSE ${visitorIncrement}
+          END
+        WHERE id = 1
+        RETURNING total_views, today_visitors, total_searches
+      `
+    : await sql`
+        UPDATE site_stats
+        SET
+          total_searches = total_searches + 1,
+          visitor_date = to_char(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD'),
+          today_visitors = CASE
+            WHEN visitor_date = to_char(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD')
+              THEN today_visitors
+            ELSE 0
+          END
+        WHERE id = 1
+        RETURNING total_views, today_visitors, total_searches
+      `;
+  return normalizeSiteStats(rows[0]);
+}
+
+function normalizeSiteStats(row: Record<string, unknown>): SiteStats {
+  return {
+    totalViews: Number(row.total_views),
+    todayVisitors: Number(row.today_visitors),
+    totalSearches: Number(row.total_searches),
+  };
+}
+
+async function ensureStatsSchema(sql: NonNullable<ReturnType<typeof getSql>>) {
+  await sql`
+    CREATE TABLE IF NOT EXISTS site_stats (
+      id SMALLINT PRIMARY KEY,
+      total_views BIGINT NOT NULL DEFAULT 0,
+      today_visitors BIGINT NOT NULL DEFAULT 0,
+      total_searches BIGINT NOT NULL DEFAULT 0,
+      visitor_date TEXT NOT NULL
+    )
+  `;
+  await sql`
+    INSERT INTO site_stats (id, total_views, today_visitors, total_searches, visitor_date)
+    VALUES (1, 0, 0, 0, to_char(CURRENT_TIMESTAMP AT TIME ZONE 'Asia/Shanghai', 'YYYY-MM-DD'))
+    ON CONFLICT (id) DO NOTHING
+  `;
 }
 
 async function ensureSchema(sql: NonNullable<ReturnType<typeof getSql>>) {

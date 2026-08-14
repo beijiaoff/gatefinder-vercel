@@ -167,6 +167,7 @@ tbody tr:hover { background: #f0f5f1; }
 footer { min-height: 64px; padding: 10px 3vw; display: flex; align-items: center; gap: 18px; border-top: 1px solid var(--line); color: var(--muted); font-size: 11px; }
 footer strong { color: var(--ink); font: 600 19px STSong, serif; }
 footer a { color: var(--green); font-weight: 700; text-decoration: underline; text-underline-offset: 2px; }
+.site-stats { margin-left: auto; color: var(--ink); font-variant-numeric: tabular-nums; white-space: nowrap; }
 .notice { position: fixed; z-index: 80; bottom: 24px; left: 50%; transform: translateX(-50%); border: 0; background: var(--ink); color: white; padding: 12px 20px; border-radius: 4px; box-shadow: 0 10px 30px rgba(0,0,0,.2); cursor: pointer; }
 
 .drawer-backdrop, .modal-backdrop { position: fixed; inset: 0; background: rgba(13,23,19,.47); z-index: 60; display: flex; justify-content: flex-end; backdrop-filter: blur(3px); }
@@ -260,6 +261,7 @@ footer a { color: var(--green); font-weight: 700; text-decoration: underline; te
   .pagination button { padding: 5px 8px; }
   footer { min-height: 54px; padding: 8px 10px; gap: 8px; align-items: flex-start; flex-direction: column; }
   footer strong { font-size: 16px; }
+  .site-stats { width: 100%; margin-left: 0; text-align: right; font-size: 10px; }
   .drawer { width: 100%; }
   .drawer-head { padding: 10px; }
   .drawer-head h2 { font-size: 18px; }

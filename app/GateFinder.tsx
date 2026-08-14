@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 type Field = { key: string; group: string; label: string; order: number };
 type CoreColumns = {
@@ -61,11 +61,11 @@ type Manifest = {
   total: number;
   categories: Array<{ slug: string; label: string; kind: string; count: number }>;
 };
+type SiteStats = { totalViews: number; todayVisitors: number; totalSearches: number };
 
 const DEFAULT_TARGET = { width: "6", height: "7", head: "35" };
 const DEFAULT_TOLERANCE = { width: 15, height: 15, head: 15 };
 const SURFACE_GATE_SLUGS = new Set(["surface-slide", "surface-wheel", "surface-radial"]);
-const SUBMERGED_GATE_SLUGS = new Set(["submerged-slide", "submerged-wheel", "submerged-radial"]);
 type AxisKey = keyof typeof DEFAULT_TARGET;
 type ToleranceMode = "percent" | "range";
 type DirectRange = { min: string; max: string };
@@ -162,6 +162,19 @@ function applyOverrides(
 function formatNumber(value: number | null, digits = 1) {
   if (value === null || Number.isNaN(value)) return "—";
   return value.toLocaleString("zh-CN", { maximumFractionDigits: digits });
+}
+
+function formatCount(value: number | undefined) {
+  return value === undefined ? "—" : value.toLocaleString("zh-CN");
+}
+
+function chinaDateKey() {
+  return new Intl.DateTimeFormat("zh-CN", {
+    timeZone: "Asia/Shanghai",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date());
 }
 
 function fieldFor(era: Era, group: string, label: string) {
@@ -321,9 +334,43 @@ export function GateFinder() {
   const [notice, setNotice] = useState("");
   const [page, setPage] = useState<Record<string, number>>({ after: 1, before: 1, unclassified: 1 });
   const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>({});
+  const [siteStats, setSiteStats] = useState<SiteStats | null>(null);
+  const viewRecorded = useRef(false);
+  const searchStatTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     fetch("/data/manifest.json").then((response) => response.json()).then(setManifest);
+  }, []);
+
+  useEffect(() => {
+    if (viewRecorded.current) return;
+    viewRecorded.current = true;
+    const storageKey = "gatefinder-visitor-date";
+    const today = chinaDateKey();
+    let newDailyVisitor = true;
+    try {
+      newDailyVisitor = localStorage.getItem(storageKey) !== today;
+      if (newDailyVisitor) localStorage.setItem(storageKey, today);
+    } catch {
+      // 关闭本地存储时仍记录一次浏览，不采集任何替代身份信息。
+    }
+    fetch("/api/stats", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ event: "view", newDailyVisitor }),
+      keepalive: true,
+    })
+      .then((response) => (response.ok ? response.json() : Promise.reject()))
+      .then(setSiteStats)
+      .catch(() => {
+        if (newDailyVisitor) {
+          try { localStorage.removeItem(storageKey); } catch { /* 无需处理 */ }
+        }
+      });
+  }, []);
+
+  useEffect(() => () => {
+    if (searchStatTimer.current) clearTimeout(searchStatTimer.current);
   }, []);
 
   useEffect(() => {
@@ -378,17 +425,22 @@ export function GateFinder() {
 
   function selectCategory(slug: string) {
     setSelectedSlug(slug);
-    if (SURFACE_GATE_SLUGS.has(slug)) {
-      clearLimit("head");
-    } else if (SUBMERGED_GATE_SLUGS.has(slug)) {
-      const defaultHead = Number(DEFAULT_TARGET.head);
-      const defaultRange = rangeOf(defaultHead, tolerance.head);
-      setTarget((current) => ({ ...current, head: DEFAULT_TARGET.head }));
-      setDirectRange((current) => ({
-        ...current,
-        head: { min: String(defaultRange.min), max: String(defaultRange.max) },
-      }));
-    }
+    if (SURFACE_GATE_SLUGS.has(slug)) clearLimit("head");
+  }
+
+  function queueSearchStat() {
+    if (searchStatTimer.current) clearTimeout(searchStatTimer.current);
+    searchStatTimer.current = setTimeout(() => {
+      fetch("/api/stats", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ event: "search" }),
+        keepalive: true,
+      })
+        .then((response) => (response.ok ? response.json() : Promise.reject()))
+        .then(setSiteStats)
+        .catch(() => undefined);
+    }, 800);
   }
 
   const results = useMemo(() => {
@@ -498,7 +550,13 @@ export function GateFinder() {
         </div>
       </header>
 
-      <section className="search-panel">
+      <section
+        className="search-panel"
+        onChangeCapture={queueSearchStat}
+        onClickCapture={(event) => {
+          if ((event.target as HTMLElement).closest?.("button")) queueSearchStat();
+        }}
+      >
         <div className="category-grid">
           {manifest?.categories.map((category) => (
             <button
@@ -591,7 +649,7 @@ export function GateFinder() {
         </section>
       )}
 
-      <footer><strong>金结闸典</strong><span>数据来自新版水利水电特性表，存在OCR错误请复核使用。网站问题联系<a href="https://applink.feishu.cn/client/chat/open?openId=ou_ef4ffc00013739a64798ce655b5dd002" target="_blank" rel="noreferrer">秦方</a>。</span></footer>
+      <footer><strong>金结闸典</strong><span>数据来自新版水利水电特性表，存在OCR错误请复核使用。网站问题联系<a href="https://applink.feishu.cn/client/chat/open?openId=ou_ef4ffc00013739a64798ce655b5dd002" target="_blank" rel="noreferrer">秦方</a>。</span><span className="site-stats">累计浏览 {formatCount(siteStats?.totalViews)} · 今日访客 {formatCount(siteStats?.todayVisitors)} · 累计检索 {formatCount(siteStats?.totalSearches)}</span></footer>
 
       {notice && <button className="notice" onClick={() => setNotice("")}>{notice}</button>}
 

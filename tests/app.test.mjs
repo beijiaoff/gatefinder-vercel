@@ -55,17 +55,28 @@ test("uses full-width desktop layout and Windows-native UI scaling", async () =>
   assert.match(layout, /\/Windows\/i\.test\(navigator\.userAgent\)/);
 });
 
-test("uses category-specific head defaults and the supplied compact logo", async () => {
+test("only clears the head limit for surface gates and uses the supplied compact logo", async () => {
   const source = await readFile(new URL("../app/GateFinder.tsx", import.meta.url), "utf8");
   const css = await readFile(new URL("../app/globals.css", import.meta.url), "utf8");
   const logo = await readFile(new URL("../public/icons/logo.png", import.meta.url));
   assert.match(source, /surface-slide.*surface-wheel.*surface-radial/);
   assert.match(source, /SURFACE_GATE_SLUGS\.has\(slug\).*clearLimit\("head"\)/s);
-  assert.match(source, /submerged-slide.*submerged-wheel.*submerged-radial/);
-  assert.match(source, /SUBMERGED_GATE_SLUGS\.has\(slug\).*head: DEFAULT_TARGET\.head/s);
+  assert.doesNotMatch(source, /SUBMERGED_GATE_SLUGS/);
+  assert.doesNotMatch(source, /head: DEFAULT_TARGET\.head/);
   assert.match(source, /src="\/icons\/logo\.png"/);
   assert.doesNotMatch(source, /className="brand-mark"/);
   assert.match(css, /\.brand-logo[^}]*border-radius:/);
   assert.equal(logo.readUInt32BE(16), 86);
   assert.equal(logo.readUInt32BE(20), 86);
+});
+
+test("stores and displays aggregate-only visit statistics", async () => {
+  const source = await readFile(new URL("../app/GateFinder.tsx", import.meta.url), "utf8");
+  const database = await readFile(new URL("../lib/database.ts", import.meta.url), "utf8");
+  const route = await readFile(new URL("../app/api/stats/route.ts", import.meta.url), "utf8");
+  assert.match(source, /累计浏览.*今日访客.*累计检索/);
+  assert.match(source, /gatefinder-visitor-date/);
+  assert.match(database, /CREATE TABLE IF NOT EXISTS site_stats/);
+  assert.match(database, /total_views.*today_visitors.*total_searches/s);
+  assert.doesNotMatch(`${database}\n${route}`, /ip_address|user_agent|referrer|keyword|search_params/i);
 });
